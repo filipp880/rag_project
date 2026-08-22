@@ -1,290 +1,227 @@
-{
- "cells": [
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "id": "539e3c76",
-   "metadata": {},
-   "outputs": [
+# %%
+import json
+import ollama
+import chromadb
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+
+with open("article.txt", 'r', encoding='utf-8') as f:
+    text = f.read()
+
+def chunk_by_paragraphs(text: str, max_chars: int = 500) -> list[str]:
+    paragraphs = text.split('\n\n')
+    chunks = []
+    current = ''
+    for p in paragraphs:
+        if len(current) + len(p) > max_chars and current:
+            chunks.append(current.strip())
+            current = ''
+        current += p + '\n\n'
+    if current.strip():
+        chunks.append(current.strip())
+    return chunks
+
+def search(query: str, top_k: int = 3):
+    query_vec = model.encode(query).tolist()
+    results = collection.query(
+        query_embeddings=[query_vec],
+        n_results=top_k
+    )
+    print(f"\n=== Запрос: {query} ===")
+    for doc, dist in zip(results['documents'][0], results['distances'][0]):
+        print(f"[dist={dist:.4f}] {doc[:150]}")
+    return results['documents'][0]
+
+def get_weather(city: str) -> dict:
+    return {"city": city, "temp": 22, "condition": "sunny"}
+
+def calculate(expression: str) -> float:
+    try:
+        return eval(expression)
+    except (SyntaxError, ZeroDivisionError, TypeError, NameError):
+        return 0.0
+
+def dispatch(function_name: str, arguments: dict):
+    if function_name == 'get_weather':
+        return get_weather(**arguments)
+    elif function_name == 'calculate':
+        return calculate(**arguments)
+    elif function_name == 'search_article':
+        return search_article(**arguments)
+    else: raise ValueError()
+
+def search_article(query: str) -> str:
+    return "\n\n".join(search(query))
+
+def ask_llm(query: str):
+    print(f"\n{'='*50}")
+    print(f"Пользователь: {query}")
+    print(f"{'='*50}")  
+    response = ollama.chat(
+        model='llama3.2',
+        messages=[
+            {
+                'role': 'system',
+                'content': 'Ты — полезный ассистент. Используй инструменты ТОЛЬКО если они действительно нужны для ответа на вопрос пользователя. Если вопрос не требует вызова функции — отвечай сам, без вызова инструментов.Отвечай на русском языке'
+            },
+                {'role': 'user', 
+                 'content': f"Вопрос:{query}"}],
+        tools=tools
+    )
+
+    message = response['message']
+
+    if message.get('tool_calls'):
+        tool_call = message['tool_calls'][0]
+        func_name = tool_call['function']['name']
+        func_args = tool_call['function']['arguments']
+
+        print(f'LLM хочет вызвать: {func_name}({func_args})')
+
+        result = dispatch(func_name, func_args)
+        print(f'Результат функции: {result}')
+
+        final_response = ollama.chat(
+            model= 'llama3.2',
+            messages=[
+                {'role': 'user', 'content': query},
+                message,
+                {
+                    'role': 'tool',
+                    'content': json.dumps(result, ensure_ascii=False)
+                }
+            ],
+            tools=tools
+        )
+
+        print(f"LLM (final): {final_response['message']['content']}")
+    else:
+        print(f"LLM (Без функции): {message['content']}")
+
+def ask_rag(query: str):
+    chunks = search(query)
+    context = "\n\n".join(chunks)
+    response = ollama.chat(
+        model='llama3.2',
+        messages=[
+            {
+                'role': 'system',
+                'content': 'Ты — умный ассистент. Ответь на вопрос пользователя, опираясь СТРОГО на предоставленный контекст.Если в контексте нет ответа на вопрос, так и скажи: В предоставленных данных нет ответа. Отвечай на русском'
+            },
+            {'role': 'user',
+              'content': f"Контекст:\n{context}\n\nВопрос:{query}"}],
+    )
+    print(f"LLM ans:{response['message']['content']}")
+    return chunks
+
+tools = [
     {
-     "name": "stderr",
-     "output_type": "stream",
-     "text": [
-      "Loading weights: 100%|██████████| 199/199 [00:00<00:00, 7981.36it/s]\n"
-     ]
+        'type': 'function',
+        'function': {
+            'name': 'get_weather',
+            'description': 'Получить погоду в городе',
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'city': {'type': 'string', 'description': 'Название города'}
+                },
+        'required': ['city']
+            }
+        }
     },
     {
-     "name": "stdout",
-     "output_type": "stream",
-     "text": [
-      "Шаг 1: вызовы['search_article']\n",
-      "\n",
-      "=== Запрос: overlap ===\n",
-      "[dist=0.5271] Также часто используется overlap (перекрытие чанков): часть текста из конца предыдущего чанка добавляется в следующий. Например, 150 символов перекрыт\n",
-      "[dist=0.6384] разбиение по структурно-логическим блокам\n",
-      "(например, по заголовкам, абзацам или специальным символам);\n",
-      "\n",
-      "разбиение по фиксированному размеру.\n",
-      "\n",
-      "Чаще все\n",
-      "[dist=0.7068] intfloat/multilingual-e5-base (или large) — универсальный retrieval-эмбеддер, хорошо работающий с русским языком;\n",
-      "\n",
-      "deepvk/USER-bge-m3 — модель, ориент\n",
-      "Агент (финал, шаг2):Оверлап, или перекрытие чанков, представляет собой добавление части текста из конца предыдущего чанка в следующий. Это позволяет сохранить связность информации между соседними чанками. В это время, после чанкинга текст преобразуется в вектор с помощью эмбеддера, что позволяет ему быть пригодным для семантического поиска.\n",
-      "Шаг 1: вызовы['calculate']\n",
-      "Агент (финал, шаг2):Температура в Москве, умноженная на 2, равна 60.\n",
-      "Шаг 1: вызовы['calculate']\n",
-      "Превышено max_iterations - останавливаюсь.\n"
-     ]
-    }
-   ],
-   "source": [
-    "import json\n",
-    "import ollama\n",
-    "import chromadb\n",
-    "from sentence_transformers import SentenceTransformer\n",
-    "\n",
-    "model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')\n",
-    "\n",
-    "with open(\"article.txt\", 'r', encoding='utf-8') as f:\n",
-    "    text = f.read()\n",
-    "\n",
-    "def chunk_by_paragraphs(text: str, max_chars: int = 500) -> list[str]:\n",
-    "    paragraphs = text.split('\\n\\n')\n",
-    "    chunks = []\n",
-    "    current = ''\n",
-    "    for p in paragraphs:\n",
-    "        if len(current) + len(p) > max_chars and current:\n",
-    "            chunks.append(current.strip())\n",
-    "            current = ''\n",
-    "        current += p + '\\n\\n'\n",
-    "    if current.strip():\n",
-    "        chunks.append(current.strip())\n",
-    "    return chunks\n",
-    "\n",
-    "def search(query: str, top_k: int = 3):\n",
-    "    query_vec = model.encode(query).tolist()\n",
-    "    results = collection.query(\n",
-    "        query_embeddings=[query_vec],\n",
-    "        n_results=top_k\n",
-    "    )\n",
-    "    print(f\"\\n=== Запрос: {query} ===\")\n",
-    "    for doc, dist in zip(results['documents'][0], results['distances'][0]):\n",
-    "        print(f\"[dist={dist:.4f}] {doc[:150]}\")\n",
-    "    return results['documents'][0]\n",
-    "\n",
-    "def get_weather(city: str) -> dict:\n",
-    "    return {\"city\": city, \"temp\": 22, \"condition\": \"sunny\"}\n",
-    "\n",
-    "def calculate(expression: str) -> float:\n",
-    "    try:\n",
-    "        return eval(expression)\n",
-    "    except (SyntaxError, ZeroDivisionError, TypeError, NameError):\n",
-    "        return 0.0\n",
-    "\n",
-    "def dispatch(function_name: str, arguments: dict):\n",
-    "    if function_name == 'get_weather':\n",
-    "        return get_weather(**arguments)\n",
-    "    elif function_name == 'calculate':\n",
-    "        return calculate(**arguments)\n",
-    "    elif function_name == 'search_article':\n",
-    "        return search_article(**arguments)\n",
-    "    else: raise ValueError()\n",
-    "\n",
-    "def search_article(query: str) -> str:\n",
-    "    return \"\\n\\n\".join(search(query))\n",
-    "\n",
-    "def ask_llm(query: str):\n",
-    "    print(f\"\\n{'='*50}\")\n",
-    "    print(f\"Пользователь: {query}\")\n",
-    "    print(f\"{'='*50}\")  \n",
-    "    response = ollama.chat(\n",
-    "        model='llama3.2',\n",
-    "        messages=[\n",
-    "            {\n",
-    "                'role': 'system',\n",
-    "                'content': 'Ты — полезный ассистент. Используй инструменты ТОЛЬКО если они действительно нужны для ответа на вопрос пользователя. Если вопрос не требует вызова функции — отвечай сам, без вызова инструментов.Отвечай на русском языке'\n",
-    "            },\n",
-    "                {'role': 'user', \n",
-    "                 'content': f\"Вопрос:{query}\"}],\n",
-    "        tools=tools\n",
-    "    )\n",
-    "\n",
-    "    message = response['message']\n",
-    "\n",
-    "    if message.get('tool_calls'):\n",
-    "        tool_call = message['tool_calls'][0]\n",
-    "        func_name = tool_call['function']['name']\n",
-    "        func_args = tool_call['function']['arguments']\n",
-    "\n",
-    "        print(f'LLM хочет вызвать: {func_name}({func_args})')\n",
-    "\n",
-    "        result = dispatch(func_name, func_args)\n",
-    "        print(f'Результат функции: {result}')\n",
-    "\n",
-    "        final_response = ollama.chat(\n",
-    "            model= 'llama3.2',\n",
-    "            messages=[\n",
-    "                {'role': 'user', 'content': query},\n",
-    "                message,\n",
-    "                {\n",
-    "                    'role': 'tool',\n",
-    "                    'content': json.dumps(result, ensure_ascii=False)\n",
-    "                }\n",
-    "            ],\n",
-    "            tools=tools\n",
-    "        )\n",
-    "\n",
-    "        print(f\"LLM (final): {final_response['message']['content']}\")\n",
-    "    else:\n",
-    "        print(f\"LLM (Без функции): {message['content']}\")\n",
-    "\n",
-    "def ask_rag(query: str):\n",
-    "    chunks = search(query)\n",
-    "    context = \"\\n\\n\".join(chunks)\n",
-    "    response = ollama.chat(\n",
-    "        model='llama3.2',\n",
-    "        messages=[\n",
-    "            {\n",
-    "                'role': 'system',\n",
-    "                'content': 'Ты — умный ассистент. Ответь на вопрос пользователя, опираясь СТРОГО на предоставленный контекст.Если в контексте нет ответа на вопрос, так и скажи: В предоставленных данных нет ответа. Отвечай на русском'\n",
-    "            },\n",
-    "            {'role': 'user',\n",
-    "              'content': f\"Контекст:\\n{context}\\n\\nВопрос:{query}\"}],\n",
-    "    )\n",
-    "    print(f\"LLM ans:{response['message']['content']}\")\n",
-    "    return chunks\n",
-    "\n",
-    "tools = [\n",
-    "    {\n",
-    "        'type': 'function',\n",
-    "        'function': {\n",
-    "            'name': 'get_weather',\n",
-    "            'description': 'Получить погоду в городе',\n",
-    "            'parameters': {\n",
-    "                'type': 'object',\n",
-    "                'properties': {\n",
-    "                    'city': {'type': 'string', 'description': 'Название города'}\n",
-    "                },\n",
-    "        'required': ['city']\n",
-    "            }\n",
-    "        }\n",
-    "    },\n",
-    "    {\n",
-    "        'type': 'function',\n",
-    "        'function': {\n",
-    "            'name': 'calculate',\n",
-    "            'description': \"Вычислять математическое выражение\",\n",
-    "            'parameters': {\n",
-    "                'type': 'object',\n",
-    "                'properties': {\n",
-    "                    'expression': {\"type\": \"string\", 'description': \"Математическое выражение\"}\n",
-    "                },\n",
-    "        'required': ['expression'],\n",
-    "            }\n",
-    "        }\n",
-    "    },\n",
-    "    {\n",
-    "        'type': 'function',\n",
-    "        'function': {\n",
-    "            'name': 'search_article',\n",
-    "            'description': 'База знаний с ответами на вопросы',\n",
-    "            'parameters':{\n",
-    "                'type': 'object',\n",
-    "                'properties': {\n",
-    "                    'query': {\"type\": \"string\", 'description': \"Вопрос, ответ на который нужно найти в базе знаний\"}\n",
-    "                },\n",
-    "        'required': ['query'],\n",
-    "            }\n",
-    "        }\n",
-    "    },\n",
-    "]\n",
-    "\n",
-    "client = chromadb.PersistentClient(path=\"./chromadb\")\n",
-    "try:\n",
-    "    client.delete_collection('article')\n",
-    "except:\n",
-    "    pass\n",
-    "\n",
-    "collection = client.create_collection(\n",
-    "    name='article',\n",
-    "    metadata={\"hnsw:space\": \"cosine\"}\n",
-    ")\n",
-    "chunks = chunk_by_paragraphs(text)\n",
-    "emb = model.encode(chunks)\n",
-    "collection.upsert(\n",
-    "    documents = chunks,\n",
-    "    embeddings = emb.tolist(),\n",
-    "    ids=[f\"chunk_{i}\" for i in range(len(chunks))]\n",
-    ")\n",
-    "\n",
-    "# while True:\n",
-    "#     user_data = input(\"Задай вопрос или напиши 'стоп'\")\n",
-    "#     if user_data.lower() == 'стоп':\n",
-    "#         break\n",
-    "#     try:\n",
-    "#         ask_llm(user_data)\n",
-    "#     except (ValueError,TypeError) as e:\n",
-    "#         print(f\"Ошибка: {e}\")\n",
-    "#         result = {\"error\": \"Функция не найдена\"}\n",
-    "\n",
-    "\n",
-    "def agent(user_query: str, max_iterations: int = 3):\n",
-    "    messages = [\n",
-    "        {'role': 'system', 'content': 'Ты - полезный ассистент. Используй инструменты, только если они нужны. '\n",
-    "         'Сложные задачи решай последовательно, вызывая инструменты по шагам. Отвечай на русском. '},\n",
-    "         {'role': 'user', 'content': user_query}\n",
-    "    ]\n",
-    "\n",
-    "    for step in range(max_iterations):\n",
-    "        response = ollama.chat(model='llama3.2', messages=messages, tools=tools)\n",
-    "        message=response['message']\n",
-    "\n",
-    "        if not message.get('tool_calls'):\n",
-    "            print(f\"Агент (финал, шаг{step+1}):{message['content']}\")\n",
-    "            return message['content']\n",
-    "\n",
-    "        print(f\"Шаг {step+1}: вызовы{[tc['function']['name']for tc in message['tool_calls']]}\")\n",
-    "\n",
-    "        messages.append(message)\n",
-    "\n",
-    "        for tool_call in message['tool_calls']:\n",
-    "            name = tool_call['function']['name']\n",
-    "            args = tool_call['function']['arguments']\n",
-    "            try:\n",
-    "                result = dispatch(name, args)\n",
-    "            except (ValueError, TypeError) as e:\n",
-    "                result = {'error': str(e)}\n",
-    "            messages.append({'role': 'tool', 'content': json.dumps(result, ensure_ascii=False)})\n",
-    "\n",
-    "    print(\"Превышено max_iterations - останавливаюсь.\")\n",
-    "    return None\n",
-    "\n",
-    "agent(\"Что такое overlap?\")\n",
-    "agent(\"Какая температура в Москве, умноженная на 2?\")\n",
-    "agent(\"Какая температура в Москве, умноженная на 2?\", max_iterationёёs=1)"
-   ]
-  }
- ],
- "metadata": {
-  "kernelspec": {
-   "display_name": "Python 3",
-   "language": "python",
-   "name": "python3"
-  },
-  "language_info": {
-   "codemirror_mode": {
-    "name": "ipython",
-    "version": 3
-   },
-   "file_extension": ".py",
-   "mimetype": "text/x-python",
-   "name": "python",
-   "nbconvert_exporter": "python",
-   "pygments_lexer": "ipython3",
-   "version": "3.10.5"
-  }
- },
- "nbformat": 4,
- "nbformat_minor": 5
-}
+        'type': 'function',
+        'function': {
+            'name': 'calculate',
+            'description': "Вычислять математическое выражение",
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'expression': {"type": "string", 'description': "Математическое выражение"}
+                },
+        'required': ['expression'],
+            }
+        }
+    },
+    {
+        'type': 'function',
+        'function': {
+            'name': 'search_article',
+            'description': 'База знаний с ответами на вопросы',
+            'parameters':{
+                'type': 'object',
+                'properties': {
+                    'query': {"type": "string", 'description': "Вопрос, ответ на который нужно найти в базе знаний"}
+                },
+        'required': ['query'],
+            }
+        }
+    },
+]
+
+client = chromadb.PersistentClient(path="./chromadb")
+try:
+    client.delete_collection('article')
+except:
+    pass
+
+collection = client.create_collection(
+    name='article',
+    metadata={"hnsw:space": "cosine"}
+)
+chunks = chunk_by_paragraphs(text)
+emb = model.encode(chunks)
+collection.upsert(
+    documents = chunks,
+    embeddings = emb.tolist(),
+    ids=[f"chunk_{i}" for i in range(len(chunks))]
+)
+
+# while True:
+#     user_data = input("Задай вопрос или напиши 'стоп'")
+#     if user_data.lower() == 'стоп':
+#         break
+#     try:
+#         ask_llm(user_data)
+#     except (ValueError,TypeError) as e:
+#         print(f"Ошибка: {e}")
+#         result = {"error": "Функция не найдена"}
+
+
+def agent(user_query: str, max_iterations: int = 3):
+    messages = [
+        {'role': 'system', 'content': 'Ты - полезный ассистент. Используй инструменты, только если они нужны. '
+         'Сложные задачи решай последовательно, вызывая инструменты по шагам. Отвечай на русском. '},
+         {'role': 'user', 'content': user_query}
+    ]
+
+    for step in range(max_iterations):
+        response = ollama.chat(model='llama3.2', messages=messages, tools=tools)
+        message=response['message']
+
+        if not message.get('tool_calls'):
+            print(f"Агент (финал, шаг{step+1}):{message['content']}")
+            return message['content']
+
+        print(f"Шаг {step+1}: вызовы{[tc['function']['name']for tc in message['tool_calls']]}")
+
+        messages.append(message)
+
+        for tool_call in message['tool_calls']:
+            name = tool_call['function']['name']
+            args = tool_call['function']['arguments']
+            try:
+                result = dispatch(name, args)
+            except (ValueError, TypeError) as e:
+                result = {'error': str(e)}
+            messages.append({'role': 'tool', 'content': json.dumps(result, ensure_ascii=False)})
+
+    print("Превышено max_iterations - останавливаюсь.")
+    return None
+
+agent("Что такое overlap?")
+agent("Какая температура в Москве, умноженная на 2?")
+agent("Какая температура в Москве, умноженная на 2?", max_iterationёёs=1)
+
+
