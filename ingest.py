@@ -11,9 +11,8 @@ def chunk_with_overlap(text: str, chunk_size: int = 500, overlap: int = 150) -> 
     return chunks
 
 def main():
-    # Безопасная инициализация под любую версию ChromaDB
     if hasattr(chromadb, "PersistentClient"):
-        client = chromadb.PersistentClient(path="./chroma_db")
+        client = chromadb.PersistentClient(path="./chromadb")
     elif hasattr(chromadb, "Client"):
         client = chromadb.Client()
     else:

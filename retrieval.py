@@ -46,10 +46,11 @@ def hybrid_search(query: str, top_k: int = 3) -> list[str]:
 
     if not final_ids:
             return []
+    
     retrieved = collection.get(ids=final_ids)
-
-    id_to_doc = dict(zip(retrieved['ids'], retrieved['documents']))
-    return [id_to_doc[doc_id] for doc_id in final_ids if doc_id in id_to_doc]
+    id_to = {i: (d, m['source']) for i, d, m in 
+                 zip(retrieved['ids'], retrieved['documents'], retrieved['metadatas'])}
+    return [id_to[i] for i in final_ids if i in id_to]
 
 client = chromadb.PersistentClient(path="./chromadb")
 collection = client.get_collection('kbase') 
@@ -71,12 +72,12 @@ if __name__ == "__main__":
         
         sem = collection.query(query_embeddings=[model.encode(q).tolist()], n_results=3)
         print("SEMANTIC:")
-        for d in sem['documents'][0]:
-            print("  ", d[:100].replace('\n', ' '))
+        for doc, src in sem['documents'][0]:
+            print("  ", doc,src[:100].replace('\n', ' '))
             
         print("\nHYBRID:")
-        for d in hybrid_search(q, top_k=3):
-            print("  ", d[:100].replace('\n', ' '))
+        for doc, src in hybrid_search(q, top_k=3):
+            print("  ", doc,src[:100].replace('\n', ' '))
 
 
 
