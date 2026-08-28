@@ -52,6 +52,14 @@ def hybrid_search(query: str, top_k: int = 3) -> list[str]:
                  zip(retrieved['ids'], retrieved['documents'], retrieved['metadatas'])}
     return [id_to[i] for i in final_ids if i in id_to]
 
+def semantic_sources(query, top_k=3):
+    res = collection.query(query_embeddings=[model.encode(query).tolist()],
+                           n_results=top_k, include=['metadatas'])
+    return [m['source'] for m in res['metadatas'][0]]
+
+def hybrid_sources(query,top_k=3):
+    return [src for _, src in hybrid_search(query, top_k=top_k)]
+
 client = chromadb.PersistentClient(path="./chromadb")
 collection = client.get_collection('kbase') 
 
@@ -62,22 +70,30 @@ bm25 = BM25Okapi([tokenize(d) for d in docs])
 
 if __name__ == "__main__":
     questions = [
-        "Какие векторные базы данных упоминаются?",
-        "Что такое overlap?"
-    ]
-    for q in questions:
-        print(f"\n======================")
-        print(f"ЗАПРОС: {q}")
-        print(f"======================")
-        
-        sem = collection.query(query_embeddings=[model.encode(q).tolist()], n_results=3)
-        print("SEMANTIC:")
-        for doc, src in sem['documents'][0]:
-            print("  ", doc,src[:100].replace('\n', ' '))
-            
-        print("\nHYBRID:")
-        for doc, src in hybrid_search(q, top_k=3):
-            print("  ", doc,src[:100].replace('\n', ' '))
+    ("Что такое overlap и зачем он нужен?", "article.txt"),
+    ("Почему LLM галлюцинируют?", "article.txt"),
+    ("Какие эмбеддеры актуальны для русского языка?", "article.txt"),
+    ("Когда RAG действительно нужен?", "article.txt"),
+    ("Что такое ingest?", "article.txt"),
+    ("Какие базы данных наиболее часто встречаются?", "article.txt"),
+    ("В чем отличие гибридного и семантического поиска?", "article.txt"),
+    ("Приведи пример реккурентных нейросетей", "transformer_notes.txt"),
+    ("Что такое self-attention?", "transformer_notes.txt"),
+    ("Что такое функция softmax?", "transformer_notes.txt"),
+    ("Что такое multi-head-attention?", "transformer_notes.txt"),
+    ("Что позволяет модели ориентироваться в структуре текста?", "transformer_notes.txt"),
+    ("С какими задачами отлично справляется нейросеть на архитектуре transformer?", "transformer_notes.txt")
+]
+    sem_hits = hyb_hits = 0
+    for q, expected in questions:
+        sem_ok = expected in semantic_sources(q)
+        hyb_ok = expected in hybrid_sources(q)
+        sem_hits += sem_ok
+        hyb_hits += hyb_ok
+        print(f"[sem {'+' if sem_ok else '-'} | hyb {'+' if hyb_ok else '-'}] {q}")
+    n = len(questions)
+    print(f"Recall@3 semantic: {sem_hits}/{len(questions)} = {sem_hits/len(questions):.2f}")
+    print(f"Recall@3 hybrid: {hyb_hits}/{len(questions)} = {hyb_hits/len(questions):.2f}")
 
 
 

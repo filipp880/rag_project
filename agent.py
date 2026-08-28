@@ -8,9 +8,6 @@ from retrieval import hybrid_search
 
 model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
-with open("data/article.txt", 'r', encoding='utf-8') as f:
-    text = f.read()
-
 file_path = os.path.join("data", "article.txt")
 with open(file_path, 'r', encoding='utf-8') as f:
     text = f.read()
