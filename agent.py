@@ -3,6 +3,8 @@ import os
 import json
 import ollama
 import re
+import json
+from datetime import datetime
 from sentence_transformers import SentenceTransformer
 from retrieval import hybrid_search
 
@@ -11,6 +13,18 @@ model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 file_path = os.path.join("data", "article.txt")
 with open(file_path, 'r', encoding='utf-8') as f:
     text = f.read()
+
+HISTORY_FILE = "history.json"
+
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return []
+
+def save_history(history):
+    with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
+        json.dump(history, f, ensure_ascii=False, indent=2)
 
 def get_weather(city: str) -> dict:
     return {"city": city, "temp": 22, "condition": "sunny"}
@@ -94,6 +108,14 @@ def agent(user_query: str, max_iterations: int = 3):
         if not message.get('tool_calls'):
             print(f"Агент (финал, шаг{step+1}):{message['content']}")
             print(f"Источники: {', '.join(sorted(sources)) or 'не использовались'}")
+            history = load_history()
+            history.append({
+                'timestamp': datetime.now().isoformat(),
+                'query': user_query,
+                'response': message['content'],
+                'sources': sorted(sources)
+            })
+            save_history(history)
             return message['content']
 
         print(f"Шаг {step+1}: вызовы{[tc['function']['name']for tc in message['tool_calls']]}")
@@ -113,9 +135,9 @@ def agent(user_query: str, max_iterations: int = 3):
     print("Превышено max_iterations - останавливаюсь.")
     return None
 
-agent("Что такое overlap?")
-agent("Что такое multi-head attention?")
-agent("Погода в Москве")
+# agent("Что такое overlap?")
+# agent("Что такое multi-head attention?")
+# agent("Погода в Москве")
 # agent("Какая температура в Москве, умноженная на 2?")
 # agent("Какая температура в Москве, умноженная на 2?", max_iterationёёs=1)
 
