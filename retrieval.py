@@ -6,7 +6,7 @@ from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 from sentence_transformers import CrossEncoder
 
-reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+reranker = CrossEncoder('BAAI/bge-reranker-v2-m3')
 model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
 def rerank(query: str, docs: list[str], top_k: int = 3) -> list[str]:
