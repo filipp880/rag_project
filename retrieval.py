@@ -1,4 +1,4 @@
-# %%
+import pymorphy3
 import os
 import re
 import chromadb
@@ -6,9 +6,14 @@ from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 from sentence_transformers import CrossEncoder
 
+morph = pymorphy3.MorphAnalyzer()
 reranker = CrossEncoder('BAAI/bge-reranker-v2-m3')
 model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
+def tokenize_lemmas(text: str) -> list[str]:
+    """Токенизация с лемматизацией"""
+    words = re.findall(r'[\wа-яё]+', text.lower())
+    return [morph.normal_forms(w)[0] for w in words]
 def rerank(query: str, docs: list[str], top_k: int = 3) -> list[str]:
     if not docs:
         return []
@@ -16,9 +21,6 @@ def rerank(query: str, docs: list[str], top_k: int = 3) -> list[str]:
     scores = reranker.predict(pairs)
     ranked = sorted(zip(docs,scores), key = lambda x: -x[1])
     return [doc for doc, _ in ranked[:top_k]]
-
-def tokenize(text: str) -> list[str]:
-    return re.findall(r'[\wа-яё]+', text.lower())
 
 def search(query: str, top_k: int = 3):
     query_vec = model.encode(query).tolist()
@@ -45,7 +47,7 @@ def hybrid_search(query: str, top_k: int = 3, use_reranker: bool = True) -> list
         n_results=top_k * 4
     )
     semantic_ids = semantic_res['ids'][0] if semantic_res['ids'] else []
-    query_tokens = tokenize(query)
+    query_tokens = tokenize_lemmas(query)
     bm25_scores = bm25.get_scores(query_tokens)
 
     id_with_scores = list(zip(doc_ids, bm25_scores))
@@ -96,7 +98,7 @@ collection = client.get_collection('kbase')
 data = collection.get()
 doc_ids = data['ids']                          
 docs = data['documents']
-bm25 = BM25Okapi([tokenize(d) for d in docs])  
+bm25 = BM25Okapi([tokenize_lemmas(d) for d in docs])  
 
 if __name__ == "__main__":
     questions = [
