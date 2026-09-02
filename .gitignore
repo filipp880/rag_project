@@ -1,4 +1,4 @@
 venv/
-chroma_db/
+chromadb/
 __pycache__/
 history.json
