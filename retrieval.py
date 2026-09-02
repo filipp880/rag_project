@@ -22,17 +22,6 @@ def rerank(query: str, docs: list[str], top_k: int = 3) -> list[str]:
     ranked = sorted(zip(docs,scores), key = lambda x: -x[1])
     return [doc for doc, _ in ranked[:top_k]]
 
-def search(query: str, top_k: int = 3):
-    query_vec = model.encode(query).tolist()
-    results = collection.query(
-        query_embeddings=[query_vec],
-        n_results=top_k
-    )
-    print(f"\n=== Запрос: {query} ===")
-    for doc, dist in zip(results['documents'][0], results['distances'][0]):
-        print(f"[dist={dist:.4f}] {doc[:150]}")
-    return results['documents'][0]
-
 def rrf_fusion(rankings: list[list[str]], k: int = 60, top_k: int = 5) -> list[str]:
     scores = {}
     for ranking in rankings:
